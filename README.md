@@ -57,7 +57,7 @@ https://steamcommunity.com/dev?l=english
 ```
 
   
-## Ekran Görüntüleri
+## Demo
 
 ![#1](https://resmim.net/cdn/2025/07/02/TPhqQk.png)
 
