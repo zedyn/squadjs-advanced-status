@@ -83,6 +83,7 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
               .map((admin) => admin.steamID)
               .join(',')}`
           );
+
           const json = await response.json();
 
           const admins = json.response.players;
@@ -95,7 +96,7 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
                 ? admins
                     .map((admin) => {
                       const player = this.onlineAdmins.find((player) => player.steamID == admin.steamid);
-                      const inCam = Object.keys(this.server.adminsInAdminCam).includes(admin.steamid);
+                      const inCam = Object.keys(this.server.adminsInAdminCam).includes(player.eosID);
 
                       return `[\` ${admin.personaname.replaceAll('`', '').trim()} \`](https://steamcommunity.com/profiles/${
                         admin.steamid
@@ -109,26 +110,9 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
             embeds: [embed],
           });
         } else {
-          const data = JSON.parse(await this.server.rcon.execute(`ShowServerInfo`));
-
-          const teamOne = data.TeamOne_s?.replace(new RegExp(data.MapName_s, 'i'), '') || '';
-          const teamTwo = data.TeamTwo_s?.replace(new RegExp(data.MapName_s, 'i'), '') || '';
-
           const teams = {
-            1: {
-              country: teamOne.split('_')[0],
-              mode: teamOne
-                .split('_')[2]
-                .replace(/([A-Z])/g, ' $1')
-                .trim(),
-            },
-            2: {
-              country: teamTwo.split('_')[0],
-              mode: teamTwo
-                .split('_')[2]
-                .replace(/([A-Z])/g, ' $1')
-                .trim(),
-            },
+            1: parseTeam(this.server.info.teamOne),
+            2: parseTeam(this.server.info.teamTwo),
           };
 
           const teamId = parseInt(type);
@@ -156,8 +140,6 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
             );
 
           if (squads.length > 0) {
-            let i = 0;
-
             for (const squad of squads) {
               embed.addFields({
                 name: `${squad.squadID} - ${squad.squadName}`,
@@ -168,23 +150,13 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
                     .filter((player) => player.squadID == squad.squadID)
                     .map(
                       (player) =>
-                        `[\` ${player.name.replace(/`/g, '').trim()} \`](https://steamcommunity.com/profiles/${player.steamID}) — ${
-                          player.role
-                        }`
+                        `${player.isLeader ? '`[SL]` ' : ''}[\` ${player.name
+                          .replace(/`/g, '')
+                          .trim()} \`](https://steamcommunity.com/profiles/${player.steamID}) — ${player.role}`
                     )
                     .join('\n')}`,
-                inline: true,
+                inline: false,
               });
-
-              i++;
-
-              if (i % 2 === 1) {
-                embed.addFields({
-                  name: '\u200b',
-                  value: '\u200b',
-                  inline: true,
-                });
-              }
             }
           }
 
@@ -221,31 +193,14 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
       if (this.server.reserveQueue > 0) queueText += ` ${this.server.reserveQueue} Whitelist`;
     }
 
-    const currentLayer = this.server.currentLayer;
+    const currentLayer = await this.server.currentLayer;
     const nextLayer = await this.server.nextLayer;
 
     const matchStartTimestamp = Math.floor(new Date(this.server.matchStartTime).getTime() / 1000);
 
-    const data = JSON.parse(await this.server.rcon.execute(`ShowServerInfo`));
-
-    const teamOne = data.TeamOne_s?.replace(new RegExp(data.MapName_s, 'i'), '') || '';
-    const teamTwo = data.TeamTwo_s?.replace(new RegExp(data.MapName_s, 'i'), '') || '';
-
     const teams = {
-      a: {
-        country: teamOne.split('_')[0],
-        mode: teamOne
-          .split('_')[2]
-          .replace(/([A-Z])/g, ' $1')
-          .trim(),
-      },
-      b: {
-        country: teamTwo.split('_')[0],
-        mode: teamTwo
-          .split('_')[2]
-          .replace(/([A-Z])/g, ' $1')
-          .trim(),
-      },
+      a: parseTeam(this.server.info.teamOne),
+      b: parseTeam(this.server.info.teamTwo),
     };
 
     const container = new ContainerBuilder()
@@ -265,7 +220,7 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
                 `**${this.options.icons?.map ?? ''} Map:** ${
                   currentLayer
                     ? `[${currentLayer.name}](https://squadmaps.com/map?name=${encodeURIComponent(
-                        currentLayer.map.name
+                        currentLayer.map?.name
                       )}&layer=${encodeURIComponent(currentLayer.gamemode)}%20${encodeURIComponent(currentLayer.version)})`
                     : 'Unknown'
                 }*`,
@@ -284,7 +239,7 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
           ],
           accessory: new ThumbnailBuilder({
             media: {
-              url: `https://raw.githubusercontent.com/Squad-Wiki/squad-wiki-pipeline-map-data/master/completed_output/_Current%20Version/images/${currentLayer.layerid}.jpg`,
+              url: `https://raw.githubusercontent.com/Squad-Wiki/squad-wiki-pipeline-map-data/master/completed_output/_Current%20Version/images/${currentLayer?.layerid}.jpg`,
             },
           }),
         })
@@ -302,7 +257,6 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
           accessory: new ButtonBuilder().setCustomId('view:admins').setStyle(ButtonStyle.Primary).setLabel('Admins'),
         })
       )
-
       .addSeparatorComponents(new SeparatorBuilder({ divider: true, spacing: SeparatorSpacingSize.Large }))
       .addSectionComponents(
         new SectionBuilder({
@@ -346,7 +300,7 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
     if (!this.options.setBotStatus) return;
 
     await this.options.discordClient.user.setActivity(
-      `(${this.server.a2sPlayerCount}/${this.server.publicSlots}) ${this.server.currentLayer?.name || 'Unknown'}`,
+      `(${this.server.a2sPlayerCount}/${this.server.publicSlots}) ${this.server.currentLayer?.name || ''}`,
       { type: 4 }
     );
   }
@@ -355,6 +309,15 @@ export default class DiscordAdvancedStatus extends DiscordBaseMessageUpdater {
     const admins = this.getAdminsWithPermission();
 
     this.onlineAdmins = this.server.players.filter((player) => admins.some((adminId) => player.steamID == adminId));
+  }
+
+  parseTeam(teamStr) {
+    const parts = teamStr.split('_');
+
+    return {
+      country: parts[0] || 'Unknown',
+      mode: parts[parts.length - 1] ? parts[parts.length - 1].replace(/([A-Z])/g, ' $1').trim() : 'Unknown',
+    };
   }
 
   getAdminsWithPermission() {
